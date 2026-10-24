@@ -116,6 +116,20 @@ BROKERAGES: tuple[Brokerage, ...] = (
             "and Southeast Asia."
         ),
     ),
+    # moomoo's platform under Futu's entity (Futu Securities): the same MCP
+    # server on another host, for an account opened with Futu rather than moomoo.
+    Brokerage(
+        name="futu",
+        label="Futu",
+        url="https://mcp.futunn.com/mcp",
+        site="futunn.com",
+        description=(
+            "Futu brokerage account: balances, positions, and order history, "
+            "real-time quotes and order book, option chains and volatility, "
+            "company fundamentals and analyst research, stock and IPO "
+            "screeners, and order placement."
+        ),
+    ),
 )
 
 _BY_NAME: dict[str, Brokerage] = {b.name: b for b in BROKERAGES}

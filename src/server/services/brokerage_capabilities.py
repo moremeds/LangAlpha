@@ -620,6 +620,12 @@ _ORDER_TOOLS: dict[str, dict[str, OrderTool]] = {
     },
 }
 
+# Futu serves moomoo's MCP server on its own host, tool for tool, so it is bound
+# by the same rules. Shared rather than copied: a tool curated for one is
+# curated for both, and the two cannot drift apart.
+for _table in (_CURATION, UNCURATED, _ORDER_TOOLS):
+    _table["futu"] = _table["moomoo"]
+
 
 def groups_for(brokerage: str | None) -> tuple[CapabilityGroup, ...]:
     """The consent toggles to offer for a brokerage, in display order.

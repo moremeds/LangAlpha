@@ -1158,3 +1158,14 @@ class MoomooOrderAdapter(OrderAdapter):
             ),
             note=order.note or raw.get("remark"),
         )
+
+
+class FutuOrderAdapter(MoomooOrderAdapter):
+    """moomoo's server under Futu's entity: the same shapes, its own name on
+    the order."""
+
+    vendor = "futu"
+
+    def parse_request(self, tool: str, args: Mapping[str, Any]) -> BrokerOrder | None:
+        order = super().parse_request(tool, args)
+        return order.model_copy(update={"vendor": self.vendor}) if order else None
