@@ -98,3 +98,21 @@ def test_uw_contract_row_and_range_filter():
     )
     assert not _in_range(row, {"strike_price_gte": 300.5})
     assert parse_osi("SPXW261120C05800000") == ("SPXW", "2026-11-20", "call", 5800.0)
+
+
+def test_us_snapshot_carries_both_extended_sessions_on_their_own_anchors():
+    from src.data_client.futu.data_source import snapshot_row
+
+    # OpenD snapshot for US.AAPL after the 2026-10-23 session.
+    row = {
+        "last_price": 347.725, "prev_close_price": 348.22, "update_time": "2026-10-23 20:02:18.212",
+        "pre_price": 349.70, "pre_change_val": 1.48, "pre_change_rate": 0.425,
+        "after_price": 347.61, "after_change_val": -0.115, "after_change_rate": -0.033,
+    }
+    snap = snapshot_row(row, "AAPL", _ET, "closed")
+    assert (snap["price"], snap["regular_close"], snap["last_trade_price"]) == (347.725, 347.725, 347.61)
+    assert (snap["early_trading_change"], snap["late_trading_change"]) == (1.48, -0.115)
+    assert snap["regular_only"] is False
+    assert snapshot_row(row, "AAPL", _ET, "pre")["last_trade_price"] == 349.70
+    hk = snapshot_row({**row, "pre_price": "N/A"}, "0700.HK", _HKT, None)
+    assert hk["regular_only"] is True and hk["early_trading_change"] is None

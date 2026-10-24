@@ -72,9 +72,9 @@ _REALTIME_ON_US_TAPE_ONLY = frozenset({"fmp"})
 
 # Publishers whose intraday bars cover only the regular session: FMP's
 # ``historical-chart`` without ``extended`` and yfinance's history without
-# ``prepost``, and Futu's K-lines without ``extended_time``. ginlix-data's
-# aggregates carry pre-market and after-hours bars.
-_REGULAR_SESSION_BARS = frozenset({"fmp", "yfinance", "futu"})
+# ``prepost``. ginlix-data's aggregates and Futu's K-lines (``extended_time``)
+# carry pre-market and after-hours bars.
+_REGULAR_SESSION_BARS = frozenset({"fmp", "yfinance"})
 
 # Venues are keyed by :func:`declared_venue`: XNYS for the US tape, XSHG for
 # all three CN exchanges. FMP's CN bars are the exchange's unadjusted prints:

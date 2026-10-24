@@ -139,9 +139,28 @@ def _us_status(phase: str) -> str:
     )
 
 
+def _latest_print(row: dict[str, Any], price: float, us_phase: str | None) -> float:
+    """The newest trade across sessions: pre-market before the open, then the
+    regular session, then after-hours, which stands until the next pre-market."""
+    if us_phase == "pre":
+        return _finite(row.get("pre_price")) or price
+    if us_phase in ("post", "closed"):
+        return _finite(row.get("after_price")) or price
+    return price
+
+
 def snapshot_row(
     row: dict[str, Any], symbol: str, tz: ZoneInfo, us_phase: str | None
 ) -> dict[str, Any] | None:
+    """One OpenD snapshot as a chain row.
+
+    ``last_price`` is the regular session's price and ``prev_close_price`` the
+    close before it. OpenD measures pre-market from that previous close and
+    after-hours from the regular close (AAPL on 2026-10-23: pre 349.70 is
+    +1.48 on 348.22, after 347.61 is -0.115 on 347.725), the anchors the
+    ``early_``/``late_trading_change`` fields carry. ``us_phase`` is None off
+    the US tape, which has no extended sessions.
+    """
     price = _finite(row.get("last_price"))
     if not price:
         return None
@@ -149,6 +168,7 @@ def snapshot_row(
     change = price - prev if prev else None
     vol = _finite(row.get("volume"))
     stamp = row.get("update_time")
+    extended = us_phase is not None
     return {
         "symbol": symbol,
         "name": row.get("name") or None,
@@ -160,13 +180,27 @@ def snapshot_row(
         "high": _finite(row.get("high_price")),
         "low": _finite(row.get("low_price")),
         "volume": int(vol) if vol is not None else None,
-        "market_status": _us_status(us_phase) if us_phase else None,
-        "early_trading_change_percent": None,
-        "late_trading_change_percent": None,
+        "market_status": _us_status(us_phase) if extended else None,
+        "last_trade_price": _latest_print(row, price, us_phase),
+        "regular_close": price,
+        "regular_trading_change": round(change, 4) if change is not None else None,
+        "regular_trading_change_percent": (
+            round(change / prev * 100, 4) if change is not None else None
+        ),
+        "early_trading_change": _finite(row.get("pre_change_val"))
+        if extended
+        else None,
+        "early_trading_change_percent": (
+            _finite(row.get("pre_change_rate")) if extended else None
+        ),
+        "late_trading_change": _finite(row.get("after_change_val"))
+        if extended
+        else None,
+        "late_trading_change_percent": (
+            _finite(row.get("after_change_rate")) if extended else None
+        ),
         "as_of": _local_ms(stamp, tz) if stamp and stamp != "N/A" else None,
-        # ponytail: regular-session price only; OpenD also has pre_price/after_price
-        # if extended-hours quotes are wanted.
-        "regular_only": True,
+        "regular_only": not extended,
     }
 
 
@@ -217,7 +251,9 @@ class FutuDataSource:
         page_key = None
         for _ in range(_MAX_PAGES):
             # QFQ: forward-adjusted for splits and dividends, declared
-            # dividend_adjusted in normalize._DECLARED.
+            # dividend_adjusted in normalize._DECLARED. extended_time adds the
+            # US pre-market and after-hours bars (04:00-20:00 ET); other venues
+            # have none.
             df, page_key = self._call(
                 "request_history_kline",
                 code,
@@ -227,6 +263,7 @@ class FutuDataSource:
                 autype=AuType.QFQ,
                 max_count=1000,
                 page_req_key=page_key,
+                extended_time=True,
             )
             rows.extend(df.to_dict("records"))
             if page_key is None:

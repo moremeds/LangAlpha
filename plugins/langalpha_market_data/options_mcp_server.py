@@ -29,7 +29,6 @@ try:
 except ModuleNotFoundError:  # imported as a package module (tests)
     from mcp_servers._bootstrap import MCPServer
 
-from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 
@@ -37,6 +36,10 @@ from data_client.ginlix_data import (
     close_ginlix_mcp_client,
     get_ginlix_mcp_client,
 )
+from data_client.ginlix_data.pagination import paginate_cursor
+from data_client.lifespan import closing_lifespan
+from data_client.normalize import normalize_bars
+from data_client.unusual_whales import close_uw_client, get_uw_client
 from market_protocol import to_canonical, to_display
 
 try:
@@ -64,12 +67,9 @@ _OPTION_INTERVALS = {
 }
 
 
-@asynccontextmanager
-async def _lifespan(app):
-    try:
-        yield
-    finally:
-        await close_ginlix_mcp_client()
+_lifespan = closing_lifespan(close_ginlix_mcp_client, close_uw_client)
+
+_UNAVAILABLE = "Options data requires ginlix-data or UW_API_KEY (neither configured)."
 
 
 # ---------------------------------------------------------------------------
@@ -162,10 +162,31 @@ async def get_options_chain(
         display, currency, timezone = underlying_ticker, None, None
 
     if not await _ginlix.ensure():
-        return make_error(
-            "client_unavailable",
-            "Options data requires ginlix-data (not configured).",
+        uw = get_uw_client()
+        if uw is None:
+            return make_error("client_unavailable", _UNAVAILABLE, symbol=display)
+        filters = {
+            k: v for k, v in {
+                "contract_type": contract_type,
+                "expiration_date_gte": expiration_date_gte,
+                "expiration_date_lte": expiration_date_lte,
+                "strike_price_gte": strike_price_gte,
+                "strike_price_lte": strike_price_lte,
+            }.items() if v is not None
+        }
+        try:
+            rows = await paginate_cursor(
+                lambda p: uw.get_options_chain(underlying_ticker, **p), filters, limit=limit,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return error_from_upstream(str(exc), symbol=display)
+        return make_response(
+            rows,
+            source="unusual-whales",
             symbol=display,
+            currency=currency,
+            timezone=timezone,
+            underlying_ticker=display,
         )
 
     result = await _ginlix.fetch_options_chain(
@@ -235,10 +256,25 @@ async def get_options_prices(
         )
 
     if not await _ginlix.ensure():
-        return make_error(
-            "client_unavailable",
-            "Options data requires ginlix-data (not configured).",
+        uw = get_uw_client()
+        if uw is None:
+            return make_error("client_unavailable", _UNAVAILABLE, symbol=opt)
+        try:
+            bars = await uw.get_options_ohlcv(
+                opt, from_date=from_date, to_date=to_date, interval=canonical,
+            )
+        except ValueError as exc:
+            return make_error("unsupported_interval", str(exc), symbol=opt, interval=canonical)
+        except Exception as exc:  # noqa: BLE001
+            return error_from_upstream(str(exc), symbol=opt, interval=canonical)
+        intraday = canonical not in ("1day", "1week", "1month")
+        return make_response(
+            list(reversed(normalize_bars(bars, opt, intraday=intraday))),
+            source="unusual-whales",
             symbol=opt,
+            interval=canonical,
+            currency=currency,
+            timezone=timezone,
         )
 
     result = await _ginlix.fetch_options_prices(
@@ -289,12 +325,10 @@ async def get_options_snapshot(
     if not tickers:
         return make_error("invalid_argument", "No options tickers provided.")
 
-    if not await _ginlix.ensure():
-        return make_error(
-            "client_unavailable",
-            "Options data requires ginlix-data (not configured).",
-            tickers=options_tickers,
-        )
+    ginlix = await _ginlix.ensure()
+    uw = None if ginlix else get_uw_client()
+    if not ginlix and uw is None:
+        return make_error("client_unavailable", _UNAVAILABLE, tickers=options_tickers)
 
     # Currency/timezone only when the batch shares a single underlying identity.
     contexts = [_underlying_context(t) for t in tickers]
@@ -302,6 +336,13 @@ async def get_options_snapshot(
     timezones = {tz for (_d, _c, tz) in contexts if tz}
     currency = next(iter(currencies)) if len(currencies) == 1 else None
     timezone = next(iter(timezones)) if len(timezones) == 1 else None
+
+    if uw is not None:
+        try:
+            snaps = await uw.get_options_snapshot(tickers)
+        except Exception as exc:  # noqa: BLE001
+            return error_from_upstream(str(exc), tickers=options_tickers)
+        return make_response(snaps, source="unusual-whales", currency=currency, timezone=timezone)
 
     result = await _ginlix.fetch_options_snapshot(tickers)
     if "error" in result:

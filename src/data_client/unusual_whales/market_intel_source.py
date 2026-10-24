@@ -8,8 +8,9 @@ strike ranges are applied here.
 
 from __future__ import annotations
 
+import asyncio
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,10 @@ _ET = ZoneInfo("America/New_York")
 _PAGE = 500  # UW's max ``limit`` on option-contracts
 _MAX_PAGES = 20
 _OSI = re.compile(r"^(.+?)(\d{6})([CP])(\d{8})$")
+# Intraday contract bars are built from UW's 1-minute bars, one request per
+# trading day, so a window is capped to its most recent days.
+_SPAN_S = {"1min": 60, "5min": 300, "15min": 900, "30min": 1800, "1hour": 3600, "4hour": 14400}
+_MAX_INTRADAY_DAYS = 30
 
 
 def parse_osi(symbol: str) -> tuple[str, str, str, float]:
@@ -72,6 +77,42 @@ def _in_range(c: dict[str, Any], f: dict[str, Any]) -> bool:
     )
 
 
+def _us_market_status() -> str:
+    # ponytail: ET clock and weekdays, not exchange_calendars, which the sandbox
+    # image lacks; an exchange holiday reads as a normal day.
+    now = datetime.now(_ET)
+    if now.weekday() >= 5:
+        return "closed"
+    hm = now.strftime("%H:%M")
+    if "04:00" <= hm < "09:30":
+        return "early_trading"
+    if "09:30" <= hm < "16:00":
+        return "open"
+    return "late_trading" if "16:00" <= hm < "20:00" else "closed"
+
+
+def _merge(bars: list[dict[str, Any]], key: Any) -> list[dict[str, Any]]:
+    """Ascending bars folded into one bar per ``key``, stamped at its first."""
+    out: list[dict[str, Any]] = []
+    last_key: Any = object()
+    for b in bars:
+        k = key(b)
+        if k != last_key:
+            out.append(dict(b))
+            last_key = k
+            continue
+        cur = out[-1]
+        cur["high"] = max((x for x in (cur["high"], b["high"]) if x is not None), default=None)
+        cur["low"] = min((x for x in (cur["low"], b["low"]) if x is not None), default=None)
+        cur["close"] = b["close"]
+        cur["volume"] += b["volume"]
+    return out
+
+
+def _et_day(bar: dict[str, Any]) -> date:
+    return datetime.fromtimestamp(bar["time"] / 1000, _ET).date()
+
+
 def _sorted(
     rows: list[dict[str, Any]], sort: str, key: str, limit: int
 ) -> list[dict[str, Any]]:
@@ -99,9 +140,7 @@ class UnusualWhalesIntelSource:
                 detail = f"{body.get('code')}: {body.get('message')}"
             except ValueError:
                 detail = resp.text[:200]
-            raise RuntimeError(
-                f"Unusual Whales {path} returned {resp.status_code} ({detail})"
-            )
+            raise RuntimeError(f"Unusual Whales {path} failed: {detail} ({resp.status_code})")
         return resp.json()
 
     async def get_options_chain(
@@ -148,14 +187,10 @@ class UnusualWhalesIntelSource:
     async def get_options_snapshot(
         self, tickers: list[str], user_id: str | None = None
     ) -> list[dict[str, Any]]:
-        from src.utils.market_hours import current_market_phase
-
         by_underlying: dict[str, list[str]] = {}
         for t in tickers:
             by_underlying.setdefault(parse_osi(t)[0], []).append(t.removeprefix("O:"))
-        status = {"pre": "early_trading", "open": "open", "post": "late_trading"}.get(
-            current_market_phase(), "closed"
-        )
+        status = _us_market_status()
         out = []
         for underlying, symbols in by_underlying.items():
             for i in range(0, len(symbols), _PAGE):
@@ -202,33 +237,77 @@ class UnusualWhalesIntelSource:
         interval: str = "1hour",
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        if interval != "1day":
-            # ponytail: daily only; UW's /option-contract/{id}/intraday has
-            # 1-minute bars one day per call, add when a caller needs them.
-            raise ValueError(
-                f"Interval '{interval}' is not supported by Unusual Whales"
-            )
         sym = options_ticker.removeprefix("O:")
-        rows = (await self._get(f"/api/option-contract/{sym}/historic")).get(
-            "chains"
-        ) or []
+        if interval in _SPAN_S:
+            span_ms = _SPAN_S[interval] * 1000
+            minutes = await self._contract_minutes(sym, from_date, to_date)
+            # Stamped at the bucket's start, as ginlix-data's aggregates are.
+            snapped = [{**b, "time": b["time"] // span_ms * span_ms} for b in minutes]
+            return _merge(snapped, lambda b: b["time"])
+        daily = await self._contract_days(sym, from_date, to_date)
+        if interval == "1day":
+            return daily
+        if interval == "1week":
+            return _merge(daily, lambda b: _et_day(b).isocalendar()[:2])
+        if interval == "1month":
+            return _merge(daily, lambda b: (_et_day(b).year, _et_day(b).month))
+        raise ValueError(f"Interval '{interval}' is not supported by Unusual Whales")
+
+    async def _contract_days(
+        self, sym: str, from_date: str | None, to_date: str | None
+    ) -> list[dict[str, Any]]:
+        rows = (await self._get(f"/api/option-contract/{sym}/historic")).get("chains") or []
         bars = []
         for r in rows:
             d = r.get("date")
             if not d or (from_date and d < from_date) or (to_date and d > to_date):
                 continue
-            bars.append(
-                {
-                    "time": int(
-                        datetime.fromisoformat(d).replace(tzinfo=_ET).timestamp() * 1000
-                    ),
-                    "open": _num(r.get("open_price")),
-                    "high": _num(r.get("high_price")),
-                    "low": _num(r.get("low_price")),
-                    "close": _num(r.get("last_price")),
-                    "volume": r.get("volume") or 0,
-                }
-            )
+            bars.append({
+                "time": int(datetime.fromisoformat(d).replace(tzinfo=_ET).timestamp() * 1000),
+                "open": _num(r.get("open_price")),
+                "high": _num(r.get("high_price")),
+                "low": _num(r.get("low_price")),
+                "close": _num(r.get("last_price")),
+                "volume": r.get("volume") or 0,
+            })
+        return sorted(bars, key=lambda b: b["time"])
+
+    async def _contract_minutes(
+        self, sym: str, from_date: str | None, to_date: str | None
+    ) -> list[dict[str, Any]]:
+        if to_date:
+            end = date.fromisoformat(to_date)
+        else:
+            now = datetime.now(_ET)
+            end = now.date() if now.strftime("%H:%M") >= "09:30" else now.date() - timedelta(1)
+            while end.weekday() >= 5:
+                end -= timedelta(1)
+        start = date.fromisoformat(from_date) if from_date else end
+        # A holiday among the weekdays costs one empty intraday call.
+        days = [
+            d for d in (start + timedelta(n) for n in range((end - start).days + 1))
+            if d.weekday() < 5
+        ][-_MAX_INTRADAY_DAYS:]
+        pages = await asyncio.gather(*(
+            self._get(f"/api/option-contract/{sym}/intraday", {"date": d.isoformat()}) for d in days
+        ))
+        bars = []
+        for page in pages:
+            for r in page.get("data") or []:
+                stamp = r.get("start_time")
+                if not stamp:
+                    continue
+                bars.append({
+                    "time": int(datetime.fromisoformat(stamp).timestamp() * 1000),
+                    "open": _num(r.get("open")),
+                    "high": _num(r.get("high")),
+                    "low": _num(r.get("low")),
+                    "close": _num(r.get("close")),
+                    # UW splits a minute's volume by side; the four sides sum to it.
+                    "volume": sum(r.get(k) or 0 for k in (
+                        "volume_ask_side", "volume_bid_side", "volume_mid_side", "volume_no_side",
+                    )),
+                })
         return sorted(bars, key=lambda b: b["time"])
 
     async def _interest_float(self, symbol: str) -> list[dict[str, Any]]:
