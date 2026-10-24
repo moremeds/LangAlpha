@@ -130,6 +130,7 @@ dependencies = [
     # Past threads are searched on the server with the agent's own pattern;
     # RE2 matches in linear time, so no pattern can hold a worker's loop.
     "google-re2>=1.1.20251105",
+    "futu-api>=10.3",
 ]
 
 [tool.uv.sources]

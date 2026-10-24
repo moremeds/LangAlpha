@@ -50,6 +50,21 @@ def _yfinance_available() -> bool:
         return False
 
 
+def _futu_available() -> bool:
+    if not os.getenv("FUTU_OPEND_HOST"):
+        return False
+    try:
+        import futu  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _unusual_whales_available() -> bool:
+    return bool(os.getenv("UW_API_KEY"))
+
+
 def _tickertick_available() -> bool:
     return True  # free, keyless API
 
@@ -96,6 +111,12 @@ async def _build_fmp_news_source() -> NewsDataSource:
     return FMPNewsSource()
 
 
+async def _build_futu_source() -> MarketDataSource:
+    from .futu.data_source import FutuDataSource
+
+    return FutuDataSource()
+
+
 async def _build_yfinance_source() -> MarketDataSource:
     from .yfinance.data_source import YFinanceDataSource
 
@@ -130,6 +151,7 @@ _SOURCE_REGISTRY: dict[str, tuple[Any, Any]] = {
     "tushare": (_ginlix_data_available, _build_tushare_source),
     "fmp": (_fmp_available, _build_fmp_source),
     "yfinance": (_yfinance_available, _build_yfinance_source),
+    "futu": (_futu_available, _build_futu_source),
 }
 
 @dataclass(frozen=True)
@@ -405,7 +427,8 @@ async def get_financial_data_provider() -> FinancialDataProvider:
 
     Builds the composite from available backends:
     - :class:`FMPFinancialSource` if ``FMP_API_KEY`` is set.
-    - :class:`GinlixMarketIntelSource` if ``GINLIX_DATA_URL`` is configured.
+    - :class:`GinlixMarketIntelSource` if ``GINLIX_DATA_URL`` is configured,
+      else :class:`UnusualWhalesIntelSource` if ``UW_API_KEY`` is set.
     """
     global _financial_data_provider
     if _financial_data_provider is not None:
@@ -443,6 +466,13 @@ async def get_financial_data_provider() -> FinancialDataProvider:
             intel = GinlixMarketIntelSource(client)
             logger.debug(
                 "financial_data.source.registered | name=ginlix-data (MarketIntelSource)"
+            )
+        elif _unusual_whales_available():
+            from .unusual_whales.market_intel_source import UnusualWhalesIntelSource
+
+            intel = UnusualWhalesIntelSource(os.environ["UW_API_KEY"])
+            logger.debug(
+                "financial_data.source.registered | name=unusual-whales (MarketIntelSource)"
             )
 
         if _ginlix_data_available():

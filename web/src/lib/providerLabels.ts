@@ -10,6 +10,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   fmp: 'FMP',
   yfinance: 'Yahoo Finance',
   tushare: 'Tushare',
+  futu: 'Futu OpenD',
 };
 
 /** Provider display name; unknown sources pass through verbatim. `daily` is a

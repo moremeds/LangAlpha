@@ -202,6 +202,8 @@ make up       # Postgres, Redis, backend and web app
 | Key | 使えるようになる機能 |
 | --- | --- |
 | `FMP_API_KEY` | ファンダメンタルズ、財務諸表、マクロ、アナリストデータ（[無料枠あり](https://site.financialmodelingprep.com/)） |
+| `FUTU_OPEND_HOST`、`FUTU_OPEND_PORT` | ログイン済みの自分の [Futu OpenD](https://openapi.futunn.com/futu-api-doc/en/) から、米国株と香港株のリアルタイム気配と K 線を取得します。権限はそのアカウントの気配権限です。米国指数と OpenD が拒否した銘柄は次のプロバイダーに回ります。Docker 構成では、同じマシンの OpenD は `host.docker.internal` です |
+| `UW_API_KEY` | `GINLIX_DATA_URL` 未設定時に、[Unusual Whales](https://unusualwhales.com/) からオプションチェーン、契約気配、空売り残高、空売り出来高、浮動株を取得します |
 | `DAYTONA_API_KEY` | [Daytona](https://www.daytona.io/) のクラウド sandbox。設定しない場合、sandbox はローカルの Docker で動く |
 | `R2_*`、`S3_*` または `OSS_*` と `storage.provider` | Cloudflare R2、AWS S3、Alibaba OSS、MinIO のオブジェクトストレージ。workspace のファイルスナップショット、memo、添付ファイル、skill のアーカイブ、大きなトランスクリプト、チャットウィジェットのデータを保持し、署名付きリンクでダウンロードを提供する。バケットがない場合、これらのデータは Postgres に保存され、チャート画像のキャプチャは無効になる |
 | `TAVILY_API_KEY`、`SERPER_API_KEY`、`EXA_API_KEY`、`PARALLEL_API_KEY`、`BOCHA_API_KEY` | Web 検索。使うエンジンは `agent_config.yaml` の `search_api`（デフォルトは `tavily`）か、ユーザーごとに Settings で選ぶ |

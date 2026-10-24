@@ -329,6 +329,7 @@ class TestGetFinancialDataProviderFactory:
         with (
             patch("src.data_client.registry._fmp_available", return_value=True),
             patch("src.data_client.registry._ginlix_data_available", return_value=False),
+            patch("src.data_client.registry._unusual_whales_available", return_value=False),
             patch("src.data_client.fmp.get_fmp_client", return_value=mock_fmp_client),
             patch("src.data_client.fmp.financial_source.FMPFinancialSource") as MockFMP,
         ):
@@ -407,6 +408,7 @@ class TestGetFinancialDataProviderFactory:
             patch("src.data_client.registry._fmp_available", return_value=False),
             patch("src.data_client.registry._yfinance_available", return_value=True),
             patch("src.data_client.registry._ginlix_data_available", return_value=False),
+            patch("src.data_client.registry._unusual_whales_available", return_value=False),
             patch(
                 "src.data_client.yfinance.financial_source.YFinanceFinancialSource"
             ) as MockYF,
@@ -427,6 +429,7 @@ class TestGetFinancialDataProviderFactory:
             patch("src.data_client.registry._fmp_available", return_value=False),
             patch("src.data_client.registry._yfinance_available", return_value=False),
             patch("src.data_client.registry._ginlix_data_available", return_value=False),
+            patch("src.data_client.registry._unusual_whales_available", return_value=False),
         ):
             from src.data_client import get_financial_data_provider
 
