@@ -14,7 +14,7 @@ import math
 import os
 import socket
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -54,6 +54,9 @@ _HK_INDEX = {"HSI": "HK.800000", "HSCE": "HK.800100"}
 _CN_MIC = {"XSHG": "SH", "XSHE": "SZ"}
 
 _CALL_TIMEOUT_S = 15.0
+# ponytail: a request OpenD never answers keeps the lock, so later calls stop
+# waiting for it after this and fall through; a hung context is not recycled.
+_LOCK_WAIT_S = 5.0
 _SNAPSHOT_BATCH = 400  # OpenD's per-request cap for get_market_snapshot
 _MAX_PAGES = 50
 
@@ -231,8 +234,12 @@ class FutuDataSource:
         """One OpenD request, returning its payload or raising on RET_ERROR."""
         from futu import RET_OK
 
-        with self._lock:
+        if not self._lock.acquire(timeout=_LOCK_WAIT_S):
+            raise RuntimeError(f"Futu OpenD {method}: an earlier request is unanswered")
+        try:
             ret, data, *rest = getattr(self._context(), method)(*args, **kwargs)
+        finally:
+            self._lock.release()
         if ret != RET_OK:
             raise RuntimeError(f"Futu OpenD {method}: {data}")
         return (data, *rest) if rest else data
@@ -241,12 +248,14 @@ class FutuDataSource:
         return await asyncio.wait_for(asyncio.to_thread(fn, *args), _CALL_TIMEOUT_S)
 
     def _klines(
-        self, code: str, ktype: str, start: str | None, end: str | None
+        self, code: str, ktype: str, start: str | None, end: str | None, tz: ZoneInfo
     ) -> list[dict[str, Any]]:
         from futu import AuType
 
-        if not start:
-            start = (datetime.now(_ET) - _DEFAULT_LOOKBACK[ktype]).strftime("%Y-%m-%d")
+        # Both bounds are always sent: OpenD reads a missing end as start + 365
+        # days, which would cut a longer window short of today.
+        end = end or datetime.now(tz).strftime("%Y-%m-%d")
+        start = start or (date.fromisoformat(end[:10]) - _DEFAULT_LOOKBACK[ktype]).isoformat()
         rows: list[dict[str, Any]] = []
         page_key = None
         for _ in range(_MAX_PAGES):
@@ -283,7 +292,7 @@ class FutuDataSource:
         if ktype is None:
             raise ValueError(f"Interval '{interval}' is not supported by Futu OpenD")
         code, tz = futu_code(symbol, is_index)
-        rows = await self._run(self._klines, code, ktype, from_date, to_date)
+        rows = await self._run(self._klines, code, ktype, from_date, to_date, tz)
         return bars_from_klines(rows, tz, interval)
 
     async def get_daily(
@@ -295,7 +304,7 @@ class FutuDataSource:
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         code, tz = futu_code(symbol, is_index)
-        rows = await self._run(self._klines, code, "K_DAY", from_date, to_date)
+        rows = await self._run(self._klines, code, "K_DAY", from_date, to_date, tz)
         return bars_from_klines(rows, tz, None)
 
     def _snapshots(self, codes: list[str]) -> dict[str, dict[str, Any]]:

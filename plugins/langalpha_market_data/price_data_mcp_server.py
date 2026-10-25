@@ -584,7 +584,7 @@ async def get_short_data(
     """Fetch short interest and/or short volume for a US stock (short-squeeze work).
 
     Short interest is FINRA bi-monthly (settlement_date); short volume is daily
-    off-exchange (date). ginlix-data only.
+    off-exchange (date). ginlix-data or Unusual Whales.
 
     Args:
         symbol: Stock ticker, e.g. "AAPL".

@@ -6,7 +6,7 @@ Provides options contracts, OHLCV price data, and real-time snapshots via MCP.
 Design goals:
 - Standard agent-facing envelope (see mcp_servers/AGENT_CONTRACT.md)
 - Complements native get_options_chain tool (which returns pre-formatted markdown)
-- ginlix-data only (no FMP fallback)
+- ginlix-data, else Unusual Whales (no FMP fallback)
 
 Tools:
 - get_options_chain: list options contracts with filters
@@ -138,7 +138,7 @@ async def get_options_chain(
 ) -> _OUT_GET_OPTIONS_CHAIN:
     """List options contracts for an underlying; use to discover/filter contracts.
 
-    Filter by call/put, expiration range, and strike range. ginlix-data only.
+    Filter by call/put, expiration range, and strike range. ginlix-data or Unusual Whales.
 
     Args:
         underlying_ticker: Underlying stock ticker, e.g. "AAPL".
@@ -227,7 +227,7 @@ async def get_options_prices(
     """Fetch OHLCV bars for one options contract; use for option price history.
 
     Intervals: 1min|5min|15min|30min|1hour|4hour|1day|1week|1month (aliases like
-    "1d"/"daily" accepted). ginlix-data only.
+    "1d"/"daily" accepted). ginlix-data or Unusual Whales.
 
     Args:
         options_ticker: OCC contract ticker, e.g. "O:AAPL260618C00220000".
@@ -307,7 +307,7 @@ async def get_options_snapshot(
     """Fetch real-time snapshots for options contracts; use for live quotes.
 
     Session OHLCV is always present; bid/ask and last trade populate during
-    market hours. ginlix-data only.
+    market hours. ginlix-data or Unusual Whales.
 
     Args:
         options_tickers: One or more OCC tickers, comma-separated

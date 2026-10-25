@@ -91,15 +91,16 @@ def _us_market_status() -> str:
     return "late_trading" if "16:00" <= hm < "20:00" else "closed"
 
 
-def _merge(bars: list[dict[str, Any]], key: Any) -> list[dict[str, Any]]:
-    """Ascending bars folded into one bar per ``key``, stamped at its first."""
+def _merge(bars: list[dict[str, Any]], start: Any) -> list[dict[str, Any]]:
+    """Ascending bars folded into one bar per period, stamped at the period's
+    start (epoch ms) that ``start`` gives for each bar."""
     out: list[dict[str, Any]] = []
-    last_key: Any = object()
+    last: Any = None
     for b in bars:
-        k = key(b)
-        if k != last_key:
-            out.append(dict(b))
-            last_key = k
+        k = start(b)
+        if k != last:
+            out.append({**b, "time": k})
+            last = k
             continue
         cur = out[-1]
         cur["high"] = max((x for x in (cur["high"], b["high"]) if x is not None), default=None)
@@ -111,6 +112,19 @@ def _merge(bars: list[dict[str, Any]], key: Any) -> list[dict[str, Any]]:
 
 def _et_day(bar: dict[str, Any]) -> date:
     return datetime.fromtimestamp(bar["time"] / 1000, _ET).date()
+
+
+def _et_ms(d: date) -> int:
+    return int(datetime(d.year, d.month, d.day, tzinfo=_ET).timestamp() * 1000)
+
+
+def _bucket(span_ms: int) -> Any:
+    """Intraday buckets counted from ET midnight, so a 4-hour bar keeps its ET
+    boundaries across a daylight-saving change."""
+    def start(bar: dict[str, Any]) -> int:
+        midnight = _et_ms(_et_day(bar))
+        return midnight + (bar["time"] - midnight) // span_ms * span_ms
+    return start
 
 
 def _sorted(
@@ -208,9 +222,12 @@ class UnusualWhalesIntelSource:
                         {
                             "ticker": "O:" + row["option_symbol"],
                             "market_status": status,
-                            # ponytail: UW's contract row has no prior close, so no
-                            # change_percent; /option-contract/{id}/historic has it per contract.
+                            # ponytail: UW's contract row has no open or prior close, so no
+                            # open or change_percent; /option-contract/{id}/historic has them.
                             "session": {
+                                "open": None,
+                                "high": _num(row.get("high_price")),
+                                "low": _num(row.get("low_price")),
                                 "close": last,
                                 "change_percent": None,
                                 "volume": row.get("volume"),
@@ -239,18 +256,18 @@ class UnusualWhalesIntelSource:
     ) -> list[dict[str, Any]]:
         sym = options_ticker.removeprefix("O:")
         if interval in _SPAN_S:
-            span_ms = _SPAN_S[interval] * 1000
             minutes = await self._contract_minutes(sym, from_date, to_date)
             # Stamped at the bucket's start, as ginlix-data's aggregates are.
-            snapped = [{**b, "time": b["time"] // span_ms * span_ms} for b in minutes]
-            return _merge(snapped, lambda b: b["time"])
+            return _merge(minutes, _bucket(_SPAN_S[interval] * 1000))
+        # The window stays the caller's, as ginlix-data's does; only the stamp
+        # moves to the period's first day.
         daily = await self._contract_days(sym, from_date, to_date)
         if interval == "1day":
             return daily
         if interval == "1week":
-            return _merge(daily, lambda b: _et_day(b).isocalendar()[:2])
+            return _merge(daily, lambda b: _et_ms(_et_day(b) - timedelta(_et_day(b).weekday())))
         if interval == "1month":
-            return _merge(daily, lambda b: (_et_day(b).year, _et_day(b).month))
+            return _merge(daily, lambda b: _et_ms(_et_day(b).replace(day=1)))
         raise ValueError(f"Interval '{interval}' is not supported by Unusual Whales")
 
     async def _contract_days(
