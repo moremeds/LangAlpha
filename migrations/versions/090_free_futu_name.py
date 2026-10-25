@@ -29,10 +29,10 @@ depends_on = None
 # reads it as somebody else's server and renames it out from under a live
 # connection. The trailing anchor keeps it a host test rather than a longer
 # prefix, so ``mcp.futunn.com.evil.com`` is still somebody else.
-_SHIPPED = r"""(VALUES
-    ('futu', '^https?://mcp\.futunn\.com(:[0-9]+)?([/?#]|$)')
+_HOST = r"^https?://mcp\.futunn\.com(:[0-9]+)?([/?#]|$)"
+_SHIPPED = f"""(VALUES
+    ('futu', '{_HOST}')
 ) AS shipped(name, vendor_host)"""
-_RESERVED = "('futu')"
 
 
 def upgrade() -> None:
@@ -110,56 +110,33 @@ def upgrade() -> None:
     # As 037's: the rows still holding the name now are the connector's, and a
     # NULL record would refuse every curated tool until a reconnect. moomoo's
     # non-danger set from 036's ``_BACKFILL``, since Futu shares its groups.
-    op.execute("""
+    # Matched by address as well as name: enforcement keys on the address, so a
+    # hand-added Futu connection under its own name is now Futu's too.
+    op.execute(f"""
         UPDATE user_mcp_oauth_connections
            SET granted_capabilities =
                '["market_data","watchlists","account","paper_trading"]'::jsonb
-         WHERE server_name = 'futu'
-           AND granted_capabilities IS NULL
+         WHERE granted_capabilities IS NULL
+           AND (server_name = 'futu' OR server_url ~* '{_HOST}')
     """)
 
-    # --- workspace tier --------------------------------------------------
-    # No address test: a brokerage connector only ever exists at the user tier,
-    # so a workspace-local row under the name is always somebody's own server,
-    # and always the one the resolver has already stopped running.
+    # No workspace-tier pass: 055 removed workspace-local servers and refuses
+    # new ones, so no workspace row can hold the name.
+
+    # Every workspace whose effective set just changed re-resolves: the renamed
+    # rows, and every connection or server at Futu's address, whose relay grant
+    # was written before the address was a brokerage and has no denial yet, so
+    # the relay refuses it as ``policy_missing`` until it is recomputed.
     op.execute(f"""
-        CREATE TEMP TABLE mcp_workspace_renames_090 ON COMMIT DROP AS
-        SELECT w.workspace_mcp_server_id,
-               w.workspace_id,
-               w.name AS old_name,
-               CASE WHEN EXISTS (
-                        SELECT 1 FROM workspace_mcp_servers x
-                         WHERE x.workspace_id = w.workspace_id
-                           AND x.name = w.name || '_local'
-                    )
-                    THEN w.name || '_local_'
-                         || replace(w.workspace_mcp_server_id::text, '-', '')
-                    ELSE w.name || '_local'
-               END AS new_name
-          FROM workspace_mcp_servers w
-         WHERE w.source = 'workspace' AND w.name IN {_RESERVED}
-    """)
-
-    # The name on the row wins over any name inside the config blob
-    # (workspace_row_to_server_config), so the blob is left as it is.
-    op.execute("""
-        UPDATE workspace_mcp_servers w SET name = r.new_name
-          FROM mcp_workspace_renames_090 r
-         WHERE w.workspace_mcp_server_id = r.workspace_mcp_server_id
-    """)
-    op.execute("""
-        UPDATE workspace_mcp_tool_schemas s SET server_name = r.new_name
-          FROM mcp_workspace_renames_090 r
-         WHERE s.workspace_id = r.workspace_id AND s.server_name = r.old_name
-    """)
-
-    # Every workspace whose effective set just changed, so a session holding the
-    # old version re-resolves instead of running the renamed row under its old
-    # name until something else happens to bump it.
-    op.execute("""
         UPDATE workspaces ws SET mcp_config_version = ws.mcp_config_version + 1
-         WHERE ws.workspace_id IN (SELECT workspace_id FROM mcp_workspace_renames_090)
-            OR ws.user_id IN (SELECT user_id FROM mcp_user_renames_090)
+         WHERE ws.user_id IN (SELECT user_id FROM mcp_user_renames_090)
+            OR ws.user_id IN (
+                SELECT user_id FROM user_mcp_oauth_connections
+                 WHERE server_url ~* '{_HOST}'
+            )
+            OR ws.user_id IN (
+                SELECT user_id FROM user_mcp_servers WHERE url ~* '{_HOST}'
+            )
     """)
 
 
