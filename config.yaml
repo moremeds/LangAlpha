@@ -199,6 +199,9 @@ redis:
 # once per request.
 market_data:
   providers:
+    - name: futu
+      markets: [us, hk]      # needs FUTU_OPEND_HOST, else skipped. Add cn if the
+                             # OpenD account holds A-share quote rights
     - name: ginlix-data
       markets: [us]          # US equities only
     - name: tushare

@@ -8,6 +8,7 @@ ginlix-data fetches are mocked — no live network.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -45,8 +46,12 @@ _SNAP = {
 }
 
 
-def _ensure(mod, value: bool):
-    return patch.object(mod._ginlix, "ensure", new=AsyncMock(return_value=value))
+def _ensure(mod, value: bool, uw=None):
+    """ginlix-data available or not; without it, *uw* is the Unusual Whales client."""
+    stack = ExitStack()
+    stack.enter_context(patch.object(mod._ginlix, "ensure", new=AsyncMock(return_value=value)))
+    stack.enter_context(patch.object(mod, "get_uw_client", return_value=uw))
+    return stack
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +67,19 @@ class TestGetOptionsChain:
             result = await mod.get_options_chain("AAPL")
 
         assert_error(result, "client_unavailable", symbol="AAPL")
+
+    @pytest.mark.asyncio
+    async def test_unusual_whales_without_ginlix(self):
+        import plugins.langalpha_market_data.options_mcp_server as mod
+
+        uw = AsyncMock()
+        uw.get_options_chain.return_value = {"results": [_CONTRACT], "next_cursor": None}
+        with _ensure(mod, False, uw=uw):
+            result = await mod.get_options_chain("AAPL", contract_type="call")
+
+        assert result["source"] == "unusual-whales"
+        assert result["data"] == [_CONTRACT]
+        assert uw.get_options_chain.await_args.kwargs["contract_type"] == "call"
 
     @pytest.mark.asyncio
     async def test_success(self):

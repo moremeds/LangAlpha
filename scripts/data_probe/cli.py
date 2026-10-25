@@ -49,6 +49,7 @@ PROVIDER_ENV: dict[str, Optional[str]] = {
     "tushare": None,
     "ginlix-data": None,
     "yfinance": None,
+    "futu": "FUTU_OPEND_HOST",
 }
 
 SURFACES = tuple(s.value for s in PROBED_SURFACES)

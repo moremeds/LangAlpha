@@ -202,6 +202,8 @@ make up       # Postgres, Redis, backend and web app
 | Key | 解锁内容 |
 | --- | --- |
 | `FMP_API_KEY` | 基本面、财务报表、宏观和分析师数据（[有免费额度](https://site.financialmodelingprep.com/)） |
+| `FUTU_OPEND_HOST`、`FUTU_OPEND_PORT` | 用你自己已登录的 [富途 OpenD](https://openapi.futunn.com/futu-api-doc/) 提供美股和港股实时报价与 K 线，权限即该账户的行情权限。美股指数和 OpenD 拒绝的标的会交给下一个数据源。Docker 部署下，本机的 OpenD 地址是 `host.docker.internal` |
+| `UW_API_KEY` | 未设置 `GINLIX_DATA_URL` 时，从 [Unusual Whales](https://unusualwhales.com/) 获取期权链、合约报价、空头仓位、卖空成交量和流通股 |
 | `DAYTONA_API_KEY` | 来自 [Daytona](https://www.daytona.io/) 的云端沙箱。没有它时，沙箱运行在本地 Docker 中 |
 | `R2_*`、`S3_*` 或 `OSS_*`，配合 `storage.provider` | Cloudflare R2、AWS S3、阿里云 OSS 或 MinIO 上的对象存储。用于保存工作区文件快照、备忘录、附件、技能归档、大型对话记录和对话小组件数据，并通过签名链接提供下载。没有存储桶时，这些数据保存在 Postgres 中，图表截图功能也会关闭 |
 | `TAVILY_API_KEY`、`SERPER_API_KEY`、`EXA_API_KEY`、`PARALLEL_API_KEY`、`BOCHA_API_KEY` | 网页搜索。搜索引擎由 `agent_config.yaml` 中的 `search_api` 决定（默认 `tavily`），也可以由每个用户在设置中自行选择 |

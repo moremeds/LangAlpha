@@ -568,7 +568,10 @@ class TestGetShortData:
     async def test_no_ginlix_client(self):
         import plugins.langalpha_market_data.price_data_mcp_server as mod
 
-        with patch.object(mod._ginlix, "ensure", new=AsyncMock(return_value=False)):
+        with (
+            patch.object(mod._ginlix, "ensure", new=AsyncMock(return_value=False)),
+            patch.object(mod, "get_uw_client", return_value=None),
+        ):
             result = await mod.get_short_data("AAPL")
 
         assert_error(result, "client_unavailable")

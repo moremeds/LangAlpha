@@ -56,6 +56,9 @@ _DECLARED: dict[str, _Declared] = {
     # (rt_min); the bar tier is the conservative floor across both. Its
     # ``rt_k`` quote is a realtime print.
     "tushare": _Declared(PriceTreatment.DIVIDEND_ADJUSTED, Tier.DELAYED_15M, Tier.REALTIME),
+    # The user's own OpenD: K-lines requested qfq (splits and dividends), and
+    # quotes as live as the account's quote rights, which OpenD enforces itself.
+    "futu": _Declared(PriceTreatment.DIVIDEND_ADJUSTED, Tier.REALTIME, Tier.REALTIME),
 }
 
 # An unknown/absent publisher: bars keep the legacy hardcoded header fallback;
@@ -69,7 +72,8 @@ _REALTIME_ON_US_TAPE_ONLY = frozenset({"fmp"})
 
 # Publishers whose intraday bars cover only the regular session: FMP's
 # ``historical-chart`` without ``extended`` and yfinance's history without
-# ``prepost``. ginlix-data's aggregates carry pre-market and after-hours bars.
+# ``prepost``. ginlix-data's aggregates and Futu's K-lines (``extended_time``)
+# carry pre-market and after-hours bars.
 _REGULAR_SESSION_BARS = frozenset({"fmp", "yfinance"})
 
 # Venues are keyed by :func:`declared_venue`: XNYS for the US tape, XSHG for

@@ -40,6 +40,7 @@ import httpx
 
 from data_client.fmp import close_fmp_client, get_fmp_client
 from data_client.lifespan import closing_lifespan
+from data_client.unusual_whales import close_uw_client, get_uw_client
 from data_client.ginlix_data import (
     DAILY_INTERVALS,
     close_ginlix_mcp_client,
@@ -123,7 +124,7 @@ _US_INDEX_FAMILIES = frozenset(
 )
 
 
-_lifespan = closing_lifespan(close_ginlix_mcp_client, close_fmp_client)
+_lifespan = closing_lifespan(close_ginlix_mcp_client, close_fmp_client, close_uw_client)
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +584,7 @@ async def get_short_data(
     """Fetch short interest and/or short volume for a US stock (short-squeeze work).
 
     Short interest is FINRA bi-monthly (settlement_date); short volume is daily
-    off-exchange (date). ginlix-data only.
+    off-exchange (date). ginlix-data or Unusual Whales.
 
     Args:
         symbol: Stock ticker, e.g. "AAPL".
@@ -601,16 +602,20 @@ async def get_short_data(
     """
     display, legacy, _currency, timezone, _ref = _resolve(symbol)
 
-    if not await _ginlix.ensure():
+    if await _ginlix.ensure():
+        raw = await _ginlix.fetch_short_data(
+            legacy, data_type=data_type, from_date=from_date, to_date=to_date, limit=limit,
+        )
+        source = "ginlix-data"
+    elif (uw := get_uw_client()) is not None:
+        raw = await _uw_short_data(uw, legacy, data_type, from_date, to_date, limit)
+        source = "unusual-whales"
+    else:
         return make_error(
             "client_unavailable",
-            "Short data requires ginlix-data (not configured).",
+            "Short data requires ginlix-data or UW_API_KEY (neither configured).",
             symbol=display,
         )
-
-    raw = await _ginlix.fetch_short_data(
-        legacy, data_type=data_type, from_date=from_date, to_date=to_date, limit=limit,
-    )
 
     data: dict[str, list] = {}
     errors: dict[str, str] = {}
@@ -633,11 +638,37 @@ async def get_short_data(
         extra["errors"] = errors
     return make_response(
         data,
-        source="ginlix-data",
+        source=source,
         symbol=display,
         timezone=timezone,
         **extra,
     )
+
+
+async def _uw_short_data(
+    uw: Any, symbol: str, data_type: str, from_date: str | None, to_date: str | None, limit: int,
+) -> dict[str, Any]:
+    """Unusual Whales short data in the sections fetch_short_data returns, newest first."""
+    sections = {
+        "short_interest": (uw.get_short_interest, "settlement_date"),
+        "short_volume": (uw.get_short_volume, "date"),
+    }
+    raw: dict[str, Any] = {}
+    for section, (fetch, key) in sections.items():
+        if data_type not in (section, "both"):
+            continue
+        try:
+            # UW returns the whole history in one response, so the date
+            # window and limit apply here.
+            rows = await fetch(symbol, limit=50000, sort=f"{key}.desc")
+        except Exception as exc:  # noqa: BLE001
+            raw[f"{section}_error"] = str(exc)
+            continue
+        raw[section] = [
+            r for r in rows
+            if (not from_date or r[key] >= from_date) and (not to_date or r[key] <= to_date)
+        ][:limit]
+    return raw
 
 
 if __name__ == "__main__":
