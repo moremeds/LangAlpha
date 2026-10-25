@@ -179,7 +179,7 @@ GROUPS: tuple[CapabilityGroup, ...] = (
 _BY_KEY: dict[str, CapabilityGroup] = {g.key: g for g in GROUPS}
 
 # Tool names exactly as the vendor publishes them, which is what the relay
-# compares against. Counted against live discovery: moomoo 88, Robinhood 67,
+# compares against. Counted against live discovery: moomoo 88 (105 by 2026-10-25, Futu the same), Robinhood 67,
 # IBKR 34, Webull 71, one of IBKR's deliberately left out.
 _CURATION: dict[str, dict[str, tuple[str, ...]]] = {
     "moomoo": {
@@ -259,14 +259,18 @@ _CURATION: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "account": (
             "account_authorized_trd_accs",
+            "account_cash_logs",
+            "account_combo_trading_info",
             "account_fills_history",
             "account_funds",
+            "account_order_fees",
             "account_order_fills_today",
             "account_orders_active",
             "account_orders_detail",
             "account_orders_history",
             "account_positions",
             "account_trading_info",
+            "trading_margin_ratio",
             "crypto_account_active_orders",
             "crypto_account_fills",
             "crypto_account_fills_history",
@@ -619,6 +623,12 @@ _ORDER_TOOLS: dict[str, dict[str, OrderTool]] = {
         "delete_order_instruction": OrderTool(OrderAction.UNSTAGE, OrderMode.STAGED),
     },
 }
+
+# Futu serves moomoo's MCP server on its own host, tool for tool, so it is bound
+# by the same rules. Shared rather than copied: a tool curated for one is
+# curated for both, and the two cannot drift apart.
+for _table in (_CURATION, UNCURATED, _ORDER_TOOLS):
+    _table["futu"] = _table["moomoo"]
 
 
 def groups_for(brokerage: str | None) -> tuple[CapabilityGroup, ...]:

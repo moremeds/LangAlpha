@@ -247,12 +247,17 @@ def adapter_for(vendor: str) -> OrderAdapter | None:
     # Imported here rather than at module scope: the vendor modules import this
     # one for the contract, so the registry has to resolve after they load.
     from src.server.services.brokerage_orders.ibkr import IbkrOrderAdapter
-    from src.server.services.brokerage_orders.moomoo import MoomooOrderAdapter
+    from src.server.services.brokerage_orders.moomoo import (
+        FutuOrderAdapter,
+        MoomooOrderAdapter,
+    )
     from src.server.services.brokerage_orders.robinhood import RobinhoodOrderAdapter
 
     match (vendor or "").strip().casefold():
         case "moomoo":
             return MoomooOrderAdapter()
+        case "futu":
+            return FutuOrderAdapter()
         case "robinhood":
             return RobinhoodOrderAdapter()
         case "ibkr":

@@ -2271,7 +2271,7 @@ async def test_brokerages_are_offered_without_touching_the_database(client):
     resp = await client.get("/api/v1/mcp/brokerages")
     assert resp.status_code == 200
     by_name = {b["name"]: b for b in resp.json()["brokerages"]}
-    assert set(by_name) == {"robinhood", "ibkr", "moomoo", "webull"}
+    assert set(by_name) == {"robinhood", "ibkr", "moomoo", "webull", "futu"}
     assert by_name["robinhood"]["native_callback_only"] is True
     assert by_name["ibkr"]["exclusive_connection"] is True
     assert by_name["ibkr"]["label"] == "Interactive Brokers"

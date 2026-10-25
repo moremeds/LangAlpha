@@ -211,6 +211,13 @@ def test_adapter_for_knows_moomoo_and_not_an_unmodeled_vendor():
     assert adapter_for("webull") is None
 
 
+def test_futu_reads_moomoo_orders_under_its_own_name():
+    order = adapter_for("futu").parse_request("trading_order_place", LIVE_PLACE_ARGS)
+    assert order == MOOMOO.parse_request(
+        "trading_order_place", LIVE_PLACE_ARGS
+    ).model_copy(update={"vendor": "futu"})
+
+
 def test_live_place_request():
     order = MOOMOO.parse_request("trading_order_place", LIVE_PLACE_ARGS)
 

@@ -346,7 +346,7 @@ def test_the_order_map_is_read_folded_like_every_other_gate(vendor: str) -> None
 
 def _status_read(vendor: str, entry: OrderTool) -> str:
     """The read a vendor's adapter settles an order of this kind with."""
-    if vendor == "moomoo":
+    if vendor in ("moomoo", "futu"):
         return {OrderMode.LIVE: moomoo.LIVE_HISTORY, OrderMode.PAPER: moomoo.PAPER_HISTORY}[
             entry.mode
         ]

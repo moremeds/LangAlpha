@@ -24,6 +24,7 @@ _PARAM_OVERLAYS: dict[str, dict[str, dict[str, str]]] = {
         },
     },
 }
+_PARAM_OVERLAYS["futu"] = _PARAM_OVERLAYS["moomoo"]  # one server, two hosts
 
 
 def overlay_tool_schemas(vendor: str | None, tools: list[dict]) -> list[dict]:
